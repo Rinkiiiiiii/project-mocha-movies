@@ -1,0 +1,152 @@
+// Prisma schema for MochaMovies
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js (NextAuth) required models
+// https://authjs.dev/getting-started/adapters/prisma
+// ---------------------------------------------------------------------------
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// App models
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  username      String    @unique
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  bio           String?
+  // Only set for credentials-based accounts; null for OAuth-only users.
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts    Account[]
+  sessions    Session[]
+  ratings     Rating[]
+  listEntries ListEntry[]
+}
+
+enum MediaType {
+  MOVIE
+  TV
+}
+
+// A local cache of TMDB titles a user has interacted with (rated and/or
+// added to a list). Titles are fetched from TMDB on demand and upserted
+// here so ratings/list entries can have a stable local foreign key.
+model Title {
+  id            String    @id @default(cuid())
+  tmdbId        Int
+  mediaType     MediaType
+  title         String
+  originalTitle String?
+  overview      String?   @db.Text
+  posterPath    String?
+  backdropPath  String?
+  releaseDate   DateTime?
+  runtime       Int?
+  genres        String[]  @default([])
+  tmdbVoteAvg   Float?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  ratings     Rating[]
+  listEntries ListEntry[]
+
+  @@unique([tmdbId, mediaType])
+  @@index([mediaType])
+}
+
+enum ListStatus {
+  PLANNING
+  WATCHING
+  COMPLETED
+  DROPPED
+  ON_HOLD
+}
+
+// A single row per (user, title): tracks watch status, optional episode
+// progress, and whether it's marked as a favorite. Ratings are stored
+// separately so a title can be rated without necessarily being "in a list".
+model ListEntry {
+  id        String     @id @default(cuid())
+  userId    String
+  titleId   String
+  status    ListStatus @default(PLANNING)
+  favorite  Boolean    @default(false)
+  progress  Int?
+  notes     String?    @db.Text
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, titleId])
+  @@index([userId, status])
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  userId    String
+  titleId   String
+  // 1-10, anilist-style score
+  score     Int
+  review    String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, titleId])
+  @@index([titleId])
+}
